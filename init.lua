@@ -1,7 +1,14 @@
+local storage = minetest.get_mod_storage()
 local http = minetest.request_http_api()
 
 local block_height_coords = { x = 0, y = 0, z = 0 }
-local last_block_height = "0"
+
+local block_height_coords_string = storage:get_string("block_height_coords")
+if block_height_coords_string ~= "" then
+    block_height_coords = minetest.deserialize(block_height_coords_string)
+end
+
+local last_block_height = storage:get_string("last_block_height")
 
 function fetch_mempool_data_string(url, ok_cb, err_cb)
     http.fetch({
@@ -48,6 +55,8 @@ end
 
 minetest.register_on_joinplayer(function(player)
     minetest.chat_send_all("new player joined")
+    minetest.chat_send_all("block_height_coords" .. vec3_to_string(block_height_coords))
+    minetest.chat_send_all("last_block_height" .. last_block_height)
 
     -- seila()
 end)
@@ -241,6 +250,7 @@ minetest.register_chatcommand("set_block_height_coords", {
             y = pos.y + 2,
             z = pos.z
         }
+        storage:set_string("block_height_coords", minetest.serialize(block_height_coords))
 
         minetest.chat_send_all("block_height_coords: " .. vec3_to_string(block_height_coords))
 
@@ -291,6 +301,7 @@ function update_block_height()
             write_digits_in_blocks(block_height_coords, "default:stone", block_height)
 
             last_block_height = block_height
+            storage:set_string("last_block_height", block_height)
         end,
         function()
             minetest.chat_send_all("Failed to get block")
@@ -320,10 +331,10 @@ minetest.register_globalstep(function(dtime)
 end)
 
 function every_60_seconds()
-    minetest.chat_send_all("60 seconds passed!")
-
-    -- only if it's been set
-    if block_height_coords.x ~= 0 then
+    if block_height_coords.x == 0 then
+        minetest.chat_send_all(
+            "No block height coords were set. To set the coords to (above) where your player currently is, use /set_block_height_coords")
+    else
         update_block_height()
         minetest.chat_send_all("block height automatically updated!")
     end
