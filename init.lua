@@ -1,5 +1,8 @@
 local http = minetest.request_http_api()
 
+local block_height_coords = { x = 0, y = 0, z = 0 }
+local last_block_height = "0"
+
 function fetch_mempool_data_string(url, ok_cb, err_cb)
     http.fetch({
         url = url,
@@ -43,23 +46,6 @@ function fetch_block_data(blockhash, ok_cb, err_cb)
     fetch_mempool_data_json("https://mempool.space/api/block/" .. blockhash, ok_cb, err_cb)
 end
 
-function seila()
-    if http then
-        minetest.chat_send_all("Sending HTTP Request.")
-
-        fetch_last_block_hash(
-            function(blockhash)
-                minetest.chat_send_all("blockhash: " .. blockhash)
-            end,
-            function()
-                minetest.chat_send_all("Failed to get block")
-            end
-        )
-    else
-        minetest.log("error", "[modname] Failed to get HTTP API.")
-    end
-end
-
 minetest.register_on_joinplayer(function(player)
     minetest.chat_send_all("new player joined")
 
@@ -68,14 +54,14 @@ end)
 
 digit_to_blocks = {
     [1] = {
-        { x = 1,  y = 0, z = 0 },
-        { x = -1, y = 0, z = 0 },
-        { x = 0,  y = 0, z = 0 },
-        { x = 0,  y = 1, z = 0 },
-        { x = 0,  y = 2, z = 0 },
-        { x = 0,  y = 3, z = 0 },
-        { x = -1, y = 3, z = 0 },
-        { x = 0,  y = 4, z = 0 }
+        { x = 2, y = 0, z = 0 },
+        { x = 0, y = 0, z = 0 },
+        { x = 1, y = 0, z = 0 },
+        { x = 1, y = 1, z = 0 },
+        { x = 1, y = 2, z = 0 },
+        { x = 1, y = 3, z = 0 },
+        { x = 0, y = 3, z = 0 },
+        { x = 1, y = 4, z = 0 }
     },
     [2] = {
         { x = 0, y = 4, z = 0 },
@@ -170,18 +156,18 @@ digit_to_blocks = {
         { x = 1, y = 0, z = 0 }
     },
     [0] = {
-        { x = 0,  y = 0, z = 0 },
-        { x = -1, y = 0, z = 0 },
-        { x = 1,  y = 0, z = 0 },
-        { x = -1, y = 1, z = 0 },
-        { x = 1,  y = 1, z = 0 },
-        { x = -1, y = 2, z = 0 },
-        { x = 1,  y = 2, z = 0 },
-        { x = -1, y = 3, z = 0 },
-        { x = 1,  y = 3, z = 0 },
-        { x = 0,  y = 4, z = 0 },
-        { x = -1, y = 4, z = 0 },
-        { x = 1,  y = 4, z = 0 },
+        { x = 1, y = 0, z = 0 },
+        { x = 0, y = 0, z = 0 },
+        { x = 2, y = 0, z = 0 },
+        { x = 0, y = 1, z = 0 },
+        { x = 2, y = 1, z = 0 },
+        { x = 0, y = 2, z = 0 },
+        { x = 2, y = 2, z = 0 },
+        { x = 0, y = 3, z = 0 },
+        { x = 2, y = 3, z = 0 },
+        { x = 1, y = 4, z = 0 },
+        { x = 0, y = 4, z = 0 },
+        { x = 2, y = 4, z = 0 },
     },
 }
 
@@ -209,16 +195,6 @@ function write_digits_in_blocks(initial_pos, node_to_place, digits)
 
         i = i + 1
     end
-
-    -- for i, digit in ipairs(digits) do
-    --     local pos = {
-    --         x = initial_pos.x + (i * 4),
-    --         y = initial_pos.y,
-    --         z = initial_pos.z
-    --     }
-
-    --     write_digit_in_blocks(pos, node_to_place, digit)
-    -- end
 end
 
 minetest.register_chatcommand("number", {
@@ -242,12 +218,38 @@ minetest.register_chatcommand("number", {
 
         write_digits_in_blocks(pos_above, "default:wood", digits)
 
-        return true, "Block placed above your head!"
+        return true, "Number placed above your head!"
+    end
+})
+
+function vec3_to_string(vec3)
+    return "(" .. tostring(vec3.x) .. "," .. tostring(vec3.y) .. "," .. tostring(vec3.z) .. ")"
+end
+
+minetest.register_chatcommand("set_block_height_coords", {
+    description = "Puts the current block height above the player's head",
+    func = function(name)
+        local player = minetest.get_player_by_name(name)
+        if not player then
+            return false, "Player not found."
+        end
+
+        local pos = player:get_pos()
+
+        block_height_coords = {
+            x = pos.x,
+            y = pos.y + 2,
+            z = pos.z
+        }
+
+        minetest.chat_send_all("block_height_coords: " .. vec3_to_string(block_height_coords))
+
+        return true, "Block height coords set to above your head!"
     end
 })
 
 
-minetest.register_chatcommand("current_block_height", {
+minetest.register_chatcommand("block_height_above_head", {
     description = "Puts the current block height above the player's head",
     func = function(name)
         local player = minetest.get_player_by_name(name)
@@ -276,3 +278,53 @@ minetest.register_chatcommand("current_block_height", {
         return true, "Block placed above your head!"
     end
 })
+
+function update_block_height()
+    fetch_last_block_height(
+        function(block_height)
+            minetest.chat_send_all("block_height: " .. block_height)
+
+            -- removing old blocks
+            write_digits_in_blocks(block_height_coords, "air", last_block_height)
+
+            -- inserting new blocks
+            write_digits_in_blocks(block_height_coords, "default:stone", block_height)
+
+            last_block_height = block_height
+        end,
+        function()
+            minetest.chat_send_all("Failed to get block")
+        end
+    )
+end
+
+minetest.register_chatcommand("update_block_height", {
+    description = "Puts the current block height above the player's head",
+    func = function()
+        update_block_height()
+
+        return true, "Block height updated!"
+    end
+})
+
+local timer = 0
+
+minetest.register_globalstep(function(dtime)
+    timer = timer + dtime
+
+    if timer >= 60 then
+        timer = 0
+
+        every_60_seconds()
+    end
+end)
+
+function every_60_seconds()
+    minetest.chat_send_all("60 seconds passed!")
+
+    -- only if it's been set
+    if block_height_coords.x ~= 0 then
+        update_block_height()
+        minetest.chat_send_all("block height automatically updated!")
+    end
+end
