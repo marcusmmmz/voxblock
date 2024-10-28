@@ -10,6 +10,8 @@ end
 
 local last_block_height = storage:get_string("last_block_height")
 
+local has_to_respawn_top_bricks = true
+
 function fetch_mempool_data_string(url, ok_cb, err_cb)
     http.fetch({
         url = url,
@@ -53,14 +55,6 @@ function fetch_block_data(blockhash, ok_cb, err_cb)
     fetch_mempool_data_json("https://mempool.space/api/block/" .. blockhash, ok_cb, err_cb)
 end
 
-minetest.register_on_joinplayer(function(player)
-    minetest.chat_send_all("new player joined")
-    minetest.chat_send_all("block_height_coords" .. vec3_to_string(block_height_coords))
-    minetest.chat_send_all("last_block_height" .. last_block_height)
-
-    -- seila()
-end)
-
 digit_to_blocks = {
     [1] = {
         { x = 2, y = 0, z = 0 },
@@ -77,7 +71,9 @@ digit_to_blocks = {
         { x = 1, y = 4, z = 0 },
         { x = 2, y = 4, z = 0 },
         { x = 2, y = 3, z = 0 },
+        { x = 0, y = 2, z = 0 },
         { x = 1, y = 2, z = 0 },
+        { x = 2, y = 2, z = 0 },
         { x = 0, y = 1, z = 0 },
         { x = 0, y = 0, z = 0 },
         { x = 1, y = 0, z = 0 },
@@ -250,42 +246,14 @@ minetest.register_chatcommand("set_block_height_coords", {
             y = pos.y + 2,
             z = pos.z
         }
+
+        spawn_bottom_bricks()
+
         storage:set_string("block_height_coords", minetest.serialize(block_height_coords))
 
-        minetest.chat_send_all("block_height_coords: " .. vec3_to_string(block_height_coords))
+        minetest.chat_send_all("block_height_coords: " .. minetest.serialize(block_height_coords))
 
         return true, "Block height coords set to above your head!"
-    end
-})
-
-
-minetest.register_chatcommand("block_height_above_head", {
-    description = "Puts the current block height above the player's head",
-    func = function(name)
-        local player = minetest.get_player_by_name(name)
-        if not player then
-            return false, "Player not found."
-        end
-
-        local pos = player:get_pos()
-
-        local pos_above = {
-            x = pos.x,
-            y = pos.y + 2,
-            z = pos.z
-        }
-
-        fetch_last_block_height(
-            function(blockheight)
-                minetest.chat_send_all("blockheight: " .. blockheight)
-                write_digits_in_blocks(pos_above, "default:stone", blockheight)
-            end,
-            function()
-                minetest.chat_send_all("Failed to get block")
-            end
-        )
-
-        return true, "Block placed above your head!"
     end
 })
 
@@ -299,6 +267,11 @@ function update_block_height()
 
             -- inserting new blocks
             write_digits_in_blocks(block_height_coords, "default:stone", block_height)
+
+            if last_block_height ~= block_height then
+                remove_top_bricks()
+                has_to_respawn_top_bricks = true
+            end
 
             last_block_height = block_height
             storage:set_string("last_block_height", block_height)
@@ -318,15 +291,105 @@ minetest.register_chatcommand("update_block_height", {
     end
 })
 
-local timer = 0
+minetest.register_chatcommand("spawn_bottom_bricks", {
+    description = "spawn_bottom_bricks",
+    func = function() spawn_bottom_bricks() end
+})
+
+function spawn_sand()
+    local sand_coords = {
+        x = block_height_coords.x + math.random(0, 20),
+        y = block_height_coords.y + 5 + 20,
+        z = block_height_coords.z + 2 + math.random(0, 1),
+    }
+
+    minetest.set_node(sand_coords, { name = "default:sand" })
+
+    minetest.check_for_falling(sand_coords)
+end
+
+function remove_top_bricks()
+    spawn_top_bricks(true)
+end
+
+function spawn_top_bricks(remove)
+    local node = { name = "default:brick" }
+
+    if remove == true then node.name = "air" end
+
+    for x = 0, 20 do
+        for z = 0, 1 do
+            local coords = {
+                x = block_height_coords.x + x,
+                y = block_height_coords.y + 5,
+                z = block_height_coords.z + 2 + z,
+            }
+
+            minetest.set_node(coords, node)
+
+            if remove then
+                minetest.check_for_falling(coords)
+            end
+        end
+    end
+end
+
+function spawn_bottom_bricks(remove)
+    local node = { name = "default:brick" }
+
+    if remove == true then node.name = "air" end
+
+    for x = 0, 20 do
+        for z = 0, 1 do
+            local coords = {
+                x = block_height_coords.x + x,
+                y = block_height_coords.y - 2,
+                z = block_height_coords.z + 2 + z,
+            }
+
+            minetest.set_node(coords, node)
+
+            if remove then
+                minetest.check_for_falling(coords)
+            end
+        end
+    end
+end
+
+function remove_bottom_blocks()
+    local node = { name = "air" }
+
+    for x = 0, 20 do
+        for z = 0, 1 do
+            local coords = {
+                x = block_height_coords.x + x,
+                y = block_height_coords.y - 1,
+                z = block_height_coords.z + 2 + z,
+            }
+
+            minetest.set_node(coords, node)
+            minetest.check_for_falling(coords)
+        end
+    end
+end
+
+local timer_60_secs = 0
+local timer_10_secs = 0
 
 minetest.register_globalstep(function(dtime)
-    timer = timer + dtime
+    timer_60_secs = timer_60_secs + dtime
+    timer_10_secs = timer_10_secs + dtime
 
-    if timer >= 60 then
-        timer = 0
+    if timer_60_secs >= 60 then
+        timer_60_secs = 0
 
         every_60_seconds()
+    end
+
+    if timer_10_secs >= 10 then
+        timer_10_secs = 0
+
+        every_10_seconds()
     end
 end)
 
@@ -336,6 +399,18 @@ function every_60_seconds()
             "No block height coords were set. To set the coords to (above) where your player currently is, use /set_block_height_coords")
     else
         update_block_height()
-        minetest.chat_send_all("block height automatically updated!")
+    end
+end
+
+function every_10_seconds()
+    if block_height_coords.x ~= 0 then
+        spawn_sand()
+
+        if has_to_respawn_top_bricks then
+            spawn_top_bricks()
+            has_to_respawn_top_bricks = false
+        end
+
+        remove_bottom_blocks()
     end
 end
